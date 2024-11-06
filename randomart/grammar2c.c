@@ -66,7 +66,7 @@ int main(int argc, char **argv)
 	FILE *output = fopen(output_path, "w");
 	assert(output && "TODO: nice error message");
 
-	if (!randomart(output, grammar, 10, SV("E"))) return 1;
+	if (!randomart(output, grammar, 20, SV("E"))) return 1;
 
 	return 0;
 }
@@ -75,6 +75,10 @@ bool parse_grammar(String_View *source_file, Grammar *grammar)
 {
 	for (;;) {
 		Rule rule = {};
+		*source_file = sv_trim_left(*source_file);
+		if (sv_starts_with(*source_file, SV("//"))) {
+			sv_chop_by_delim(source_file, '\n');
+		}
 		rule.name = sv_trim(sv_chop_by_sv(source_file, SV(" ::= ")));
 		if (source_file->count == 0 || rule.name.count == 0) {
 			return true;
@@ -175,7 +179,7 @@ void randomart_render_expr(FILE *output, Grammar g, int depth, Expr *expr)
 {
 	if (expr->count == 0) {
 		if (sv_eq(expr->symbol, SV("rand"))) {
-			fprintf(output, "%f", (float)rand() / RAND_MAX);
+			fprintf(output, "%f", 2 * (float)rand() / RAND_MAX - 1);
 			return;
 		}
 
@@ -194,7 +198,10 @@ void randomart_render_expr(FILE *output, Grammar g, int depth, Expr *expr)
 
 	fprintf(output, SV_Fmt "(", SV_Arg(expr->symbol));
 	for (size_t i = 0; i < expr->count; ++i) {
-		randomart_render_expr(output, g, depth-1, &expr->items[i]);
+		float d = depth-1;
+		while (d >= 0 && rand() >= RAND_MAX/2) d -= 1;
+
+		randomart_render_expr(output, g, d, &expr->items[i]);
 		if (i+1 < expr->count) {
 			fprintf(output, ", ");
 		} else {
@@ -224,7 +231,17 @@ bool randomart(FILE *output, Grammar g, int depth, String_View rule_name)
 
 	Branch *branch = &rule->items[0];
 	if (depth > 0) {
-		// TODO: Pick with probability
+		float p = rand() / (float)RAND_MAX;
+		// TODO: for this algorithms rules should be sorted
+		float total = 0;
+		for (int i = 0; i < rule->count; ++i) {
+			total +=  rule->items[i].prob_num / (float)rule->items[i].prob_den;
+			if (total >= p) {
+				branch = &rule->items[i];
+				break;
+			}
+		}
+
 		branch = &rule->items[rand()%rule->count];
 	}
 

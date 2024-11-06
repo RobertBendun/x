@@ -10,22 +10,26 @@ typedef struct {
 	uint8_t r, g, b, a;
 } RGBA;
 
-#define WIDTH 800
-#define HEIGHT 600
+#define WIDTH 1000
+#define HEIGHT 1000
 
+float clamp(float x, float min, float max)
+{
+	return x > max ? max : x < min ? min : x;
+}
 
 RGBA color(float r, float g, float b)
 {
-	uint8_t rr = (r+1)/2 * 255;
-	uint8_t gg = (g+1)/2 * 255;
-	uint8_t bb = (b+1)/2 * 255;
+	uint8_t rr = (clamp(r, -1, 1)+1)/2 * 255;
+	uint8_t gg = (clamp(g, -1, 1)+1)/2 * 255;
+	uint8_t bb = (clamp(b, -1, 1)+1)/2 * 255;
 
 	return (RGBA) {rr,gg,bb,255};
 }
 
 float add(float a, float b)
 {
-	return (a + b)/2;
+	return a + b;
 }
 
 float mult(float a, float b)
@@ -35,7 +39,7 @@ float mult(float a, float b)
 
 float mod(float a, float b)
 {
-	return b == 0 ? 0 : fmodf(a, b);
+	return fmodf(a, b);
 }
 
 RGBA randomart(float x, float y)
