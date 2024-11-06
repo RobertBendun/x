@@ -1,7 +1,8 @@
 #include <assert.h>
-#include <ctype.h>
+#include <stdio.h>
 #include <stdio.h>
 #include <libgen.h>
+#include <time.h>
 
 #define SV_IMPLEMENTATION
 #include "sv.h"
@@ -9,12 +10,8 @@
 #define NOB_IMPLEMENTATION
 #include "nob.h"
 
+// Nonterminals have count > 0, terminals count = 0
 typedef struct Expr {
-	enum Expr_Type {
-		TERMINAL,
-		NON_TERMINAL,
-	} type;
-
 	String_View symbol;
 	struct Expr *items;
 	size_t count, capacity;
@@ -41,8 +38,12 @@ bool parse_rule_body(String_View *source_file, Rule *rule);
 bool parse_branch(String_View *source_file, Branch *branch);
 bool parse_function_or_constant(String_View *source_file, Expr *expr);
 
+bool randomart(FILE *output, Grammar g, int depth, String_View rule);
+
 int main(int argc, char **argv)
 {
+	srand(time(NULL));
+
 	if (argc < 3) {
 		fprintf(stderr, "usage: %s <grammar source> <C output>\n", basename(argv[0]));
 		return 2;
@@ -61,6 +62,11 @@ int main(int argc, char **argv)
 
 	Grammar grammar = {};
 	if (!parse_grammar(&source_file, &grammar)) return 1;
+
+	FILE *output = fopen(output_path, "w");
+	assert(output && "TODO: nice error message");
+
+	if (!randomart(output, grammar, 10, SV("E"))) return 1;
 
 	return 0;
 }
@@ -109,7 +115,6 @@ bool parse_branch(String_View *source_file, Branch *branch)
 {
 	if (!parse_function_or_constant(source_file, &branch->expr)) return false;
 
-
 	*source_file = sv_trim_left(*source_file);
 	branch->prob_num  = sv_chop_u64(source_file);
 	*source_file = sv_trim_left(*source_file);
@@ -141,8 +146,6 @@ bool parse_function_or_constant(String_View *source_file, Expr *expr)
 	*source_file = sv_trim_left(*source_file);
 
 	if (sv_starts_with(*source_file, SV("("))) {
-		expr->type = NON_TERMINAL;
-
 		sv_chop_left(source_file, 1);
 
 		for (;;) {
@@ -163,9 +166,68 @@ bool parse_function_or_constant(String_View *source_file, Expr *expr)
 				return false;
 			}
 		}
-	} else {
-		expr->type = TERMINAL;
 	}
 
+	return true;
+}
+
+void randomart_render_expr(FILE *output, Grammar g, int depth, Expr *expr)
+{
+	if (expr->count == 0) {
+		if (sv_eq(expr->symbol, SV("rand"))) {
+			fprintf(output, "%f", (float)rand() / RAND_MAX);
+			return;
+		}
+
+		for (size_t i = 0; i < g.count; ++i) {
+			if (sv_eq(g.items[i].name, expr->symbol)) {
+				if (randomart(output, g, depth-1, expr->symbol)) {
+					return;
+				} else {
+					break;
+				}
+			}
+		}
+		fprintf(output, SV_Fmt, SV_Arg(expr->symbol));
+		return;
+	}
+
+	fprintf(output, SV_Fmt "(", SV_Arg(expr->symbol));
+	for (size_t i = 0; i < expr->count; ++i) {
+		randomart_render_expr(output, g, depth-1, &expr->items[i]);
+		if (i+1 < expr->count) {
+			fprintf(output, ", ");
+		} else {
+			fprintf(output, ")");
+		}
+	}
+}
+
+bool randomart(FILE *output, Grammar g, int depth, String_View rule_name)
+{
+	Rule *rule = NULL;
+	for (size_t i = 0; i < g.count; ++i) {
+		if (sv_eq(g.items[i].name, rule_name)) {
+			rule = &g.items[i];
+			break;
+		}
+	}
+	if (rule == NULL) {
+		fprintf(stderr, "Failed to found rule: \"" SV_Fmt "\"\n", SV_Arg(rule_name));
+		fprintf(stderr, "Available: ");
+		for (size_t i = 0; i < g.count; ++i) {
+			fprintf(stderr, "\""SV_Fmt"\" ", SV_Arg(g.items[i].name));
+		}
+		fprintf(stderr, "\n");
+		return false;
+	}
+
+	Branch *branch = &rule->items[0];
+	if (depth > 0) {
+		// TODO: Pick with probability
+		branch = &rule->items[rand()%rule->count];
+	}
+
+	randomart_render_expr(output, g, depth, &branch->expr);
 	return true;
 }
