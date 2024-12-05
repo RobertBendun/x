@@ -78,28 +78,25 @@ multi MAIN(3, 2, $file) {
 # So the next best solution is to use string like in TCL
 # Great.
 multi MAIN(4, 1, $file) {
-	my $grid = $file.IO.lines>>.comb;
+	my @grid = $file.IO.lines>>.comb;
+
+	my @match = do for -1..1 X -1..1 -> ($dy, $dx) {
+		(for 1..3 { ["MAS".comb[$_-1], $dx*$_, $dy*$_] }) if $dx != 0 or $dy != 0
+	};
+
+	my @vx = 0..^@grid.elems;
+	my @vy = 0..^@grid[0].elems;
 
 	my $count = 0;
-
-	for 0..^$grid -> $y {
-		for 0..^$grid -> $x {
-			if $grid[$x][$y] ~~ "X" {
-				for -1..1 -> $dy {
-					again: for -1..1 -> $dx {
-						if $dy != 0 or $dx != 0 {
-							for "MAS".comb Z 1..* -> ($exp, $m) {
-								my $nx = $x + $dx * $m;
-								my $ny = $y + $dy * $m;
-								next again
-									if $nx < 0 || $ny < 0 || $nx > $grid || $ny > $grid[0] ||
-									       $grid[$nx][$ny] !~~ $exp;
-							}
-
-							$count++;
-						}
-					}
+	for 0..^@grid X 0..^@grid -> ($y, $x) {
+		if @grid[$x;$y] eq "X" {
+			dir: for @match -> @dir {
+				for @dir -> ($exp, $dx, $dy) {
+					my $nx = $x + $dx;
+					my $ny = $y + $dy;
+					next dir unless $nx (elem) @vx && $ny (elem) @vy && @grid[$nx;$ny] eq $exp;
 				}
+				$count++;
 			}
 		}
 	}
@@ -108,14 +105,14 @@ multi MAIN(4, 1, $file) {
 }
 
 multi MAIN(4, 2, $file) {
-	my $grid = $file.IO.lines>>.comb;
+	my @grid = $file.IO.lines>>.comb;
 	my $count = 0;
 
-	for 1..^$grid-1 X 1..^$grid-1 -> ($y, $x) {
-		if $grid[$x][$y] ~~ "A" {
-			$count += 1 if
-				"$grid[$x-1][$y-1]$grid[$x+1][$y+1]" ~~ /"MS"|"SM"/ &&
-				"$grid[$x+1][$y-1]$grid[$x-1][$y+1]" ~~ /"MS"|"SM"/;
+	for 1..^@grid-1 X 1..^@grid-1 -> ($y, $x) {
+		if @grid[$x][$y] eq "A" {
+			$count++ if
+				"@grid[$x-1;$y-1]@grid[$x+1;$y+1]" ~~ /"MS"|"SM"/ &&
+				"@grid[$x+1;$y-1]@grid[$x-1;$y+1]" ~~ /"MS"|"SM"/;
 		}
 	}
 
