@@ -73,3 +73,51 @@ multi MAIN(3, 2, $file) {
 
 	say $total;
 }
+
+# First annoyance with Raku - there is no builtin two element value container
+# So the next best solution is to use string like in TCL
+# Great.
+multi MAIN(4, 1, $file) {
+	my $grid = $file.IO.lines>>.comb;
+
+	my $count = 0;
+
+	for 0..^$grid -> $y {
+		for 0..^$grid -> $x {
+			if $grid[$x][$y] ~~ "X" {
+				for -1..1 -> $dy {
+					again: for -1..1 -> $dx {
+						if $dy != 0 or $dx != 0 {
+							for "MAS".comb Z 1..* -> ($exp, $m) {
+								my $nx = $x + $dx * $m;
+								my $ny = $y + $dy * $m;
+								next again
+									if $nx < 0 || $ny < 0 || $nx > $grid || $ny > $grid[0] ||
+									       $grid[$nx][$ny] !~~ $exp;
+							}
+
+							$count++;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	say $count;
+}
+
+multi MAIN(4, 2, $file) {
+	my $grid = $file.IO.lines>>.comb;
+	my $count = 0;
+
+	for 1..^$grid-1 X 1..^$grid-1 -> ($y, $x) {
+		if $grid[$x][$y] ~~ "A" {
+			$count += 1 if
+				"$grid[$x-1][$y-1]$grid[$x+1][$y+1]" ~~ /"MS"|"SM"/ &&
+				"$grid[$x+1][$y-1]$grid[$x-1][$y+1]" ~~ /"MS"|"SM"/;
+		}
+	}
+
+	say $count;
+}
