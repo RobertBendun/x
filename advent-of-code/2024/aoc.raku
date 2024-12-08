@@ -96,12 +96,12 @@ multi MAIN(4, 1, $file) {
 					my $ny = $y + $dy;
 					next dir unless $nx (elem) @vx && $ny (elem) @vy && @grid[$nx;$ny] eq $exp;
 				}
-				$count++;
+				++$count
 			}
 		}
 	}
 
-	say $count;
+	say $count
 }
 
 multi MAIN(4, 2, $file) {
@@ -109,12 +109,168 @@ multi MAIN(4, 2, $file) {
 	my $count = 0;
 
 	for 1..^@grid-1 X 1..^@grid-1 -> ($y, $x) {
-		if @grid[$x][$y] eq "A" {
-			$count++ if
-				"@grid[$x-1;$y-1]@grid[$x+1;$y+1]" ~~ /"MS"|"SM"/ &&
-				"@grid[$x+1;$y-1]@grid[$x-1;$y+1]" ~~ /"MS"|"SM"/;
+		++$count
+			if @grid[$x;$y] eq "A"
+			&& "@grid[$x-1;$y-1]@grid[$x+1;$y+1]" & "@grid[$x+1;$y-1]@grid[$x-1;$y+1]" eq "MS" | "SM";
+	}
+
+	say $count;
+}
+
+
+grammar Day5 {
+	rule TOP { <order>+ % "\n" <update>+ % "\n" }
+	token order { <int> "|" <int> }
+	token update { <int>+ % "," }
+	token int { \d+ }
+}
+
+multi MAIN(5, 1, $file) {
+	my $m = Day5.parse($file.IO.slurp);
+	my %before .= new;
+	my %after .= new;
+
+	for $m<order> -> $order {
+		%before.push: +$order<int>[1] => +$order<int>[0];
+		%after.push:  +$order<int>[0] => +$order<int>[1];
+	}
+
+	my $total = 0;
+	for $m<update> -> $update_ {
+		my @update = $update_<int>>>.Int;
+		$total += @update[* div 2] if all do for @update Z 0..* -> ($page, $i) { !(%before{$page}.one (elem) @update[$i..*]) && !(%after{$page}.one (elem) @update[0..$i]); };
+	}
+	say $total;
+}
+
+multi MAIN(5, 2, $file) {
+	my $m = Day5.parse($file.IO.slurp);
+	my %before .= new;
+	my %after .= new;
+
+	for $m<order> -> $order {
+		%before.push: +$order<int>[1] => +$order<int>[0];
+		%after.push:  +$order<int>[0] => +$order<int>[1];
+	}
+
+	my $total = 0;
+	for $m<update> -> $update_ {
+		my @update = $update_<int>>>.Int;
+		next if all do for @update Z 0..* -> ($page, $i) { !(%before{$page}.one (elem) @update[$i..*]) && !(%after{$page}.one (elem) @update[0..$i]); };
+		@update = @update.sort: { %before{$^a}.one == $^b ?? Order::Less !! Order::More }
+		$total += @update[* div 2];
+	}
+	say $total;
+}
+
+multi MAIN(6, 1, $file) {
+	my $cx = 0;
+	my $cy = 0;
+	my @grid = $file.IO.lines>>.comb;
+	my SetHash $obstacles .= new;
+
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($_, $x) {
+			# TCL core - using strings as data structures
+			when "#" { $obstacles.set: "$x $y" }
+			when "^" { $cx = $x; $cy = $y; }
 		}
 	}
 
+	my $dir = 0;
+	my SetHash $visited .= new;
+
+	while ($cy (elem) 0..^@grid.elems && $cx (elem) 0..^@grid[0].elems) {
+		$visited.set: "$cx $cy";
+
+		my $nx = $cx + {0 =>  0, 1 => 1, 2 => 0, 3 => -1}{$dir};
+		my $ny = $cy + {0 => -1, 1 => 0, 2 => 1, 3 =>  0}{$dir};
+
+		if "$nx $ny" (elem) $obstacles {
+			$dir = ($dir + 1) % 4;
+			next;
+		}
+
+		$cx = $nx;
+		$cy = $ny;
+	}
+
+	say $visited.elems;
+
+#`(
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($c, $x) {
+			if "$x $y" (elem) $obstacles {
+				print "#"
+			} elsif "$x $y" (elem) $visited {
+				print "X"
+			} else {
+				print "."
+			}
+		}
+		say "";
+	}
+)
+}
+
+multi MAIN(6, 2, $file) {
+	my $cx = 0;
+	my $cy = 0;
+	my @grid = $file.IO.lines>>.comb;
+	my SetHash $obstacles .= new;
+
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($_, $x) {
+			# TCL core - using strings as data structures
+			when "#" { $obstacles.set: "$x $y" }
+			when "^" { $cx = $x; $cy = $y; }
+		}
+	}
+
+	sub try($cx_, $cy_) {
+		my $cx = $cx_;
+		my $cy = $cy_;
+		my $dir = 0;
+		my SetHash $visited .= new;
+
+		while ($cy (elem) 0..^@grid.elems && $cx (elem) 0..^@grid[0].elems) {
+			if "$cx $cy $dir" (elem) $visited {
+				return True;
+			}
+			$visited.set: "$cx $cy $dir";
+
+			my $nx = $cx + {0 =>  0, 1 => 1, 2 => 0, 3 => -1}{$dir};
+			my $ny = $cy + {0 => -1, 1 => 0, 2 => 1, 3 =>  0}{$dir};
+
+			if "$nx $ny" (elem) $obstacles {
+				$dir = ($dir + 1) % 4;
+				next;
+			}
+
+			$cx = $nx;
+			$cy = $ny;
+		}
+
+		return False;
+	}
+
+	my $count = 0;
+
+	my $todo = +@grid * +@grid[0];
+
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($_, $x) {
+			my $progress = ($y * +@line + $x) * 100 div $todo;
+			print "\r$progress";
+
+			when "." {
+				$obstacles.set: "$x $y";
+				$count++ if try(+$cx, +$cy);
+				$obstacles.unset: "$x $y";
+			}
+		}
+	}
+
+	say "";
 	say $count;
 }
