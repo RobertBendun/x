@@ -84,9 +84,6 @@ multi MAIN(4, 1, $file) {
 		(for 1..3 { ["MAS".comb[$_-1], $dx*$_, $dy*$_] }) if $dx != 0 or $dy != 0
 	};
 
-	my @vx = 0..^@grid.elems;
-	my @vy = 0..^@grid[0].elems;
-
 	my $count = 0;
 	for 0..^@grid X 0..^@grid -> ($y, $x) {
 		if @grid[$x;$y] eq "X" {
@@ -94,7 +91,7 @@ multi MAIN(4, 1, $file) {
 				for @dir -> ($exp, $dx, $dy) {
 					my $nx = $x + $dx;
 					my $ny = $y + $dy;
-					next dir unless $nx (elem) @vx && $ny (elem) @vy && @grid[$nx;$ny] eq $exp;
+					next dir unless inbounds(@grid, $nx, $ny) && @grid[$nx;$ny] eq $exp;
 				}
 				++$count
 			}
@@ -180,7 +177,7 @@ multi MAIN(6, 1, $file) {
 	my $dir = 0;
 	my SetHash $visited .= new;
 
-	while ($cy (elem) 0..^@grid.elems && $cx (elem) 0..^@grid[0].elems) {
+	while inbounds @grid, $cx, $cy {
 		$visited.set: "$cx $cy";
 
 		my $nx = $cx + {0 =>  0, 1 => 1, 2 => 0, 3 => -1}{$dir};
@@ -233,7 +230,7 @@ multi MAIN(6, 2, $file) {
 		my $dir = 0;
 		my SetHash $visited .= new;
 
-		while ($cy (elem) 0..^@grid.elems && $cx (elem) 0..^@grid[0].elems) {
+		while inbounds @grid, $cx, $cy {
 			if "$cx $cy $dir" (elem) $visited {
 				return True;
 			}
@@ -341,7 +338,7 @@ multi MAIN(8, 1, $file) {
 			my ($x1, $y1) = $a.words>>.Int;
 			my ($x2, $y2) = $b.words>>.Int;
 			my ($xa, $ya) = $x1 + ($x1 - $x2), $y1 + ($y1 - $y2);
-			$antinodes.set: "$xa $ya" if $xa >= 0 && $xa < +@grid[0] && $ya >= 0 && $ya < +@grid;
+			$antinodes.set: "$xa $ya" if inbounds @grid, $xa, $ya;
 		}
 	}
 
@@ -380,7 +377,7 @@ multi MAIN(8, 2, $file) {
 			my ($x2, $y2) = $b.words>>.Int;
 			for 0..* -> $s {
 				my ($xa, $ya) = $x1 + $s * ($x1 - $x2), $y1 + $s * ($y1 - $y2);
-				if $xa >= 0 && $xa < +@grid[0] && $ya >= 0 && $ya < +@grid {
+				if inbounds @grid, $xa, $ya {
 					$antinodes.set: "$xa $ya"
 				} else {
 					last;
@@ -400,4 +397,8 @@ multi MAIN(8, 2, $file) {
 )
 
 	say +$antinodes;
+}
+
+sub inbounds(@grid, $x, $y) {
+	return $x >= 0 && $x < +@grid[0] && $y >= 0 && $y < +@grid;
 }
