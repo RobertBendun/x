@@ -319,3 +319,85 @@ multi MAIN(7, 2, $file) {
 
 	say $total;
 }
+
+multi MAIN(8, 1, $file) {
+	my @grid = $file.IO.lines>>.comb;
+
+	# % sygil makes Hash type by default
+	my %antennas;
+
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($c, $x) {
+			next if $c eq ".";
+			%antennas{$c}.push: "$x $y";
+		}
+	}
+
+	my SetHash $antinodes .= new;
+
+	for %antennas.kv -> $antenna, @locations {
+		for @locations X @locations -> ($a, $b) {
+			next if $a eq $b;
+			my ($x1, $y1) = $a.words>>.Int;
+			my ($x2, $y2) = $b.words>>.Int;
+			my ($xa, $ya) = $x1 + ($x1 - $x2), $y1 + ($y1 - $y2);
+			$antinodes.set: "$xa $ya" if $xa >= 0 && $xa < +@grid[0] && $ya >= 0 && $ya < +@grid;
+		}
+	}
+
+#`(
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($c, $x) {
+			when "$x $y" (elem) $antinodes { print "#" }
+			print $c
+		}
+		say "";
+	}
+)
+
+	say +$antinodes;
+}
+
+multi MAIN(8, 2, $file) {
+	my @grid = $file.IO.lines>>.comb;
+
+	# % sygil makes Hash type by default
+	my %antennas;
+
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($c, $x) {
+			next if $c eq ".";
+			%antennas{$c}.push: "$x $y";
+		}
+	}
+
+	my SetHash $antinodes .= new;
+
+	for %antennas.kv -> $antenna, @locations {
+		for @locations X @locations -> ($a, $b) {
+			next if $a eq $b;
+			my ($x1, $y1) = $a.words>>.Int;
+			my ($x2, $y2) = $b.words>>.Int;
+			for 0..* -> $s {
+				my ($xa, $ya) = $x1 + $s * ($x1 - $x2), $y1 + $s * ($y1 - $y2);
+				if $xa >= 0 && $xa < +@grid[0] && $ya >= 0 && $ya < +@grid {
+					$antinodes.set: "$xa $ya"
+				} else {
+					last;
+				}
+			}
+		}
+	}
+
+#`(
+	for @grid Z 0..* -> (@line, $y) {
+		for @line Z 0..* -> ($c, $x) {
+			when "$x $y" (elem) $antinodes { print "#" }
+			print $c
+		}
+		say "";
+	}
+)
+
+	say +$antinodes;
+}
