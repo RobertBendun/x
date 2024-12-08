@@ -330,29 +330,16 @@ multi MAIN(8, 1, $file) {
 		}
 	}
 
-	my SetHash $antinodes .= new;
-
-	for %antennas.kv -> $antenna, @locations {
-		for @locations X @locations -> ($a, $b) {
-			next if $a eq $b;
-			my ($x1, $y1) = $a.words>>.Int;
-			my ($x2, $y2) = $b.words>>.Int;
-			my ($xa, $ya) = $x1 + ($x1 - $x2), $y1 + ($y1 - $y2);
-			$antinodes.set: "$xa $ya" if inbounds @grid, $xa, $ya;
+	gather {
+		for %antennas.values -> @locations {
+			for @locations X @locations -> $v {
+				next if $v[0] eq $v[1];
+				my ($a, $b) = $v.map(*.words>>.Int);
+				my ($x, $y) = $a <<+>> ($a <<->> $b);
+				take "$x $y" if inbounds @grid, $x, $y
+			}
 		}
-	}
-
-#`(
-	for @grid Z 0..* -> (@line, $y) {
-		for @line Z 0..* -> ($c, $x) {
-			when "$x $y" (elem) $antinodes { print "#" }
-			print $c
-		}
-		say "";
-	}
-)
-
-	say +$antinodes;
+	}.SetHash.elems.say;
 }
 
 multi MAIN(8, 2, $file) {
@@ -368,35 +355,19 @@ multi MAIN(8, 2, $file) {
 		}
 	}
 
-	my SetHash $antinodes .= new;
-
-	for %antennas.kv -> $antenna, @locations {
-		for @locations X @locations -> ($a, $b) {
-			next if $a eq $b;
-			my ($x1, $y1) = $a.words>>.Int;
-			my ($x2, $y2) = $b.words>>.Int;
-			for 0..* -> $s {
-				my ($xa, $ya) = $x1 + $s * ($x1 - $x2), $y1 + $s * ($y1 - $y2);
-				if inbounds @grid, $xa, $ya {
-					$antinodes.set: "$xa $ya"
-				} else {
-					last;
+	gather {
+		for %antennas.values -> @locations {
+			for @locations X @locations -> $v {
+				next if $v[0] eq $v[1];
+				my ($a, $b) = $v.map(*.words>>.Int);
+				for 0..* {
+					my ($x, $y) = $a <<+>> ($_ <<*>> ($a <<->> $b));
+					last unless inbounds @grid, $x, $y;
+					take "$x $y"
 				}
 			}
 		}
-	}
-
-#`(
-	for @grid Z 0..* -> (@line, $y) {
-		for @line Z 0..* -> ($c, $x) {
-			when "$x $y" (elem) $antinodes { print "#" }
-			print $c
-		}
-		say "";
-	}
-)
-
-	say +$antinodes;
+	}.SetHash.Int.say;
 }
 
 sub inbounds(@grid, $x, $y) {
