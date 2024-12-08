@@ -310,9 +310,7 @@ multi MAIN(7, 2, $file) {
 				if $v > $result { return False }
 				return calc($i+1, $v + @vals[$i])
 					|| calc($i+1,   $v * @vals[$i])
-					|| calc($i+1,   "$v@vals[$i]".Int)
-
-				# Concatenation is faster then log10 and exponantiation lol
+					|| calc($i+1,   $v ~ @vals[$i])
 			}
 
 			$total += $result if calc(1, @vals[0]);
