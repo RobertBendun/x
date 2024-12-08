@@ -274,3 +274,50 @@ multi MAIN(6, 2, $file) {
 	say "";
 	say $count;
 }
+
+
+multi MAIN(7, 1, $file) {
+	my $total = 0;
+
+	for $file.IO.lines {
+		when /(\d+) ": " (\d+)+ % " "/ {
+			my $result = $/[0].Int;
+			my @vals = $/[1]>>.Int;
+
+			sub calc($i, $v) {
+				if $i >= @vals.elems { return $v == $result }
+				if $v > $result { return False }
+				return calc($i+1, $v + @vals[$i]) || calc($i+1, $v * @vals[$i])
+			}
+
+			$total += $result if calc(1, @vals[0]);
+		}
+	}
+
+	say $total;
+}
+
+multi MAIN(7, 2, $file) {
+	my $total = 0;
+
+	for $file.IO.lines {
+		when /(\d+) ": " (\d+)+ % " "/ {
+			my $result = $/[0].Int;
+			my @vals = $/[1]>>.Int;
+
+			sub calc($i, $v) {
+				if $i >= +@vals { return $v == $result }
+				if $v > $result { return False }
+				return calc($i+1, $v + @vals[$i])
+					|| calc($i+1,   $v * @vals[$i])
+					|| calc($i+1,   "$v@vals[$i]".Int)
+
+				# Concatenation is faster then log10 and exponantiation lol
+			}
+
+			$total += $result if calc(1, @vals[0]);
+		}
+	}
+
+	say $total;
+}
