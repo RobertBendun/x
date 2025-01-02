@@ -1,225 +1,336 @@
-#include <coroutine>
-#include <iostream>
-#include <utility>
-#include <span>
-#include <cstdint>
-#include <memory>
 #include <cassert>
-#include <functional>
+#include <coroutine>
+#include <cstdint>
+#include <iostream>
+#include <optional>
+#include <span>
 #include <system_error>
 #include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include <netinet/in.h>
-#include <unistd.h>
 #include <fcntl.h>
-#include <sys/socket.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 
-std::vector<std::function<bool()>> executor_list;
+struct Epoll_Wait
+{
+	int fd;
+	int events;
+};
+
+struct Scheduler
+{
+	std::vector<std::coroutine_handle<>> immidiate; // Awaiting execution now
+	std::vector<std::coroutine_handle<>> scheduled; // Awaiting execution in the future
+	std::unordered_map<void*, int> suspended;
+
+	int epoll_fd;
+
+	Scheduler()
+	{
+		epoll_fd = epoll_create1(0);
+		assert(epoll_fd >= 0 && "TODO: error handling");
+	}
+
+	~Scheduler()
+	{
+		close(epoll_fd);
+	}
+
+	Scheduler(Scheduler const&) = delete;
+	Scheduler(Scheduler&&) = delete;
+	Scheduler& operator=(Scheduler const&) = delete;
+	Scheduler& operator=(Scheduler &&) = delete;
+
+	void schedule(Epoll_Wait w, std::coroutine_handle<> cont)
+	{
+		epoll_event ev = {};
+		ev.events = w.events;
+		ev.data.ptr = cont.address();
+
+		auto result = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, w.fd, &ev);
+		if (result < 0) {
+			perror("epoll_ctl");
+			std::exit(2);
+		}
+		suspended[ev.data.ptr] = w.fd;
+	}
+
+	void schedule(std::coroutine_handle<> coroutine)
+	{
+		scheduled.push_back(coroutine);
+	}
+
+	void main_loop()
+	{
+		std::vector<epoll_event> events;
+
+		while (scheduled.size() || suspended.size()) {
+			immidiate.clear();
+			std::swap(immidiate, scheduled);
+
+			for (auto i = 0u; i < immidiate.size(); ++i) {
+				auto status = immidiate[i];
+				immidiate[i].resume();
+				if (immidiate[i].done()) {
+					immidiate[i].destroy();
+				}
+			}
+
+			if (suspended.size()) {
+				events.resize(suspended.size());
+
+				auto ready_count = epoll_wait(epoll_fd, events.data(), events.size(), scheduled.size() ? 0 : -1);
+				assert(ready_count >= 0 && "TODO: error handling");
+
+				for (auto ev : std::span{events}.subspan(0, ready_count)) {
+					auto continuation = std::coroutine_handle<>::from_address(ev.data.ptr);
+					schedule(continuation);
+					auto it = suspended.find(ev.data.ptr);
+					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, it->second, NULL);
+					suspended.erase(it);
+				}
+			}
+		}
+	}
+};
+
+static Scheduler scheduler;
 
 namespace coro
 {
-	struct Promise
-	{
-		std::suspend_never initial_suspend() { return {}; }
-		std::suspend_never final_suspend() noexcept { return {}; }
+	template<typename T>
+	struct Task;
 
-		void get_return_object() {}
-		void return_void() {}
+	template<typename T>
+	struct Promise;
+
+	template<typename P, typename Result>
+	struct Promise_Implementation
+	{
+		Task<Result> get_return_object()
+		{
+			return {std::coroutine_handle<P>::from_promise(*(P*)this)};
+		}
+
+		std::suspend_always initial_suspend() { return {}; }
 
 		void unhandled_exception()
 		{
 			assert(false && "not implemented yet");
 		}
-	};
 
-	struct Task : std::coroutine_handle<Promise>
-	{
-		using promise_type = Promise;
+		auto await_transform(Epoll_Wait w)
+		{
+			struct Epoll_Awaitable : Epoll_Wait
+			{
+				// TODO: This could be optimized.
+				bool await_ready() { return false; }
+
+				void await_suspend(std::coroutine_handle<P> handle)
+				{
+					scheduler.schedule(*this, handle);
+				}
+
+				void await_resume() {}
+			};
+
+			return Epoll_Awaitable{w};
+		}
+
+		template<typename T>
+		auto await_transform(Task<T> task)
+		{
+			struct Invoke
+			{
+				std::coroutine_handle<Promise<T>> call;
+
+				bool await_ready() { return false; }
+
+				std::coroutine_handle<> await_suspend(std::coroutine_handle<> self)
+				{
+					call.promise().continuation = self;
+					return call;
+				}
+
+				T await_resume()
+				{
+					return *call.promise().returned;
+				}
+			};
+
+			return Invoke{std::move(task)};
+		}
+
+		auto final_suspend() noexcept
+		{
+			struct Continue
+			{
+				bool await_ready() noexcept { return false; }
+				void await_resume() noexcept {}
+
+				std::coroutine_handle<> await_suspend(std::coroutine_handle<P> self) noexcept
+				{
+					if (auto cont = self.promise().continuation; cont) {
+						return cont;
+					}
+					return std::noop_coroutine();
+				}
+			};
+
+			return Continue{};
+		}
 	};
 
 	template<typename T>
-	struct Poll
+	struct Promise : Promise_Implementation<Promise<T>, T>
 	{
-		T result;
-		std::function<bool(T&)> poll;
+		using result_type = T;
+		std::coroutine_handle<> continuation;
+		std::optional<T> returned;
 
-		template<typename U>
-		Poll(U&& t)
-			: result{}, poll{std::forward<U>(t)}
+		void return_value(T return_value)
 		{
-		}
-
-		bool await_ready()
-		{
-			return poll(result);
-		}
-
-		void await_suspend(std::coroutine_handle<> handle)
-		{
-			// Schedule
-
-			executor_list.emplace_back([handle, this] mutable -> bool {
-				if (poll(result)) {
-					handle.resume();
-					return true;
-				}
-				return false;
-			});
-		}
-
-		T await_resume()
-		{
-			return std::move(result);
+			returned = std::move(return_value);
 		}
 	};
 
-	// TODO: Sort out lifetimes. This function cannot accept lvalue references, everything must be moved or copied
-	void spawn(auto &&f, auto&& ...args)
+	template<>
+	struct Promise<void> : Promise_Implementation<Promise<void>, void>
 	{
-		executor_list.push_back([f = std::move(f), ...args = std::move(args)]() -> bool {
-			f(std::move(args)...);
-			return true;
-		});
+		using result_type = void;
+		std::coroutine_handle<> continuation;
+		void return_void() {}
+	};
+
+	template<typename T>
+	struct [[nodiscard]] Task
+	{
+		using promise_type = Promise<T>;
+		std::coroutine_handle<Promise<T>> handle;
+		bool empty = true;
+
+		Task(std::coroutine_handle<Promise<T>> handle)
+			: handle(handle), empty(false)
+		{
+		}
+
+		Task(Task &&other)
+			: handle(other.handle), empty(false)
+		{
+			other = {};
+		}
+
+		Task(Task const&) = delete;
+
+		// Scheduler should deallocate
+		~Task() { assert(empty); }
+
+		operator std::coroutine_handle<>() && { empty = true; return std::exchange(handle, {}); }
+		operator std::coroutine_handle<Promise<T>>() && { empty = true; return std::exchange(handle, {}); }
+	};
+
+
+	Task<int> accept(int server)
+	{
+		struct sockaddr saddr = {};
+		socklen_t socklen = sizeof(saddr);
+
+		co_await Epoll_Wait { .fd = server, .events = EPOLLIN };
+		auto client = ::accept(server, &saddr, &socklen);
+		assert(client >= 0 && "TODO: error handling");
+
+		auto result = fcntl(client, F_SETFL, O_NONBLOCK);
+		assert(result >= 0 && "TODO: error handling");
+		co_return client;
+	}
+
+	Task<std::span<std::uint8_t>> read(int fd, std::span<uint8_t> data)
+	{
+		co_await Epoll_Wait { .fd = fd, .events = EPOLLIN };
+		auto recv = ::read(fd, data.data(), data.size_bytes());
+		assert(recv >= 0 && "TODO: error handling");
+		co_return data.subspan(0, recv);
+	}
+
+	Task<std::tuple<std::span<std::uint8_t>, std::errc>> send(int fd, std::span<uint8_t> data, int flags)
+	{
+		co_await Epoll_Wait { .fd = fd, .events = EPOLLOUT };
+		auto written = ::send(fd, data.data(), data.size_bytes(), flags);
+		if (written <= 0) {
+			co_return {{}, std::errc(errno)};
+		}
+		co_return {data.subspan(written), {}};
 	}
 }
 
-namespace coro::net
+int listen(std::string interface, std::uint16_t port)
 {
-	struct Socket
-	{
-		int sock_fd;
+	int result;
 
-		Poll<std::span<std::uint8_t>> read(std::span<std::uint8_t>) const;
-		Poll<std::span<std::uint8_t>> write(std::span<std::uint8_t>) const;
-		Poll<Socket> accept() const;
-	};
+	int server = socket(AF_INET, SOCK_STREAM, 0);
+	assert(server >= 0 && "TODO: error handling");
 
-	Poll<Socket> Socket::accept() const
-	{
-		return [sock_fd = sock_fd](Socket &s) mutable -> bool {
-			struct sockaddr saddr = {};
-			socklen_t socklen = sizeof(saddr);
+	result = fcntl(server, F_SETFL, O_NONBLOCK);
+	assert(result >= 0 && "TODO: error handling");
 
-			s.sock_fd = ::accept(sock_fd, &saddr, &socklen);
-			if (s.sock_fd < 0) {
-				if (errno == EWOULDBLOCK) {
-					return false;
-				}
-				assert(false && "TODO: error handling");
-			}
+	int enable = 1;
+	result = setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+	assert(result >= 0 && "TODO: error handling");
 
-			auto result = fcntl(s.sock_fd, F_SETFL, O_NONBLOCK);
-			assert(result >= 0 && "TODO: error handling");
-			return true;
-		};
+	sockaddr_in sockaddr = {}; // TODO: Use address provided by interface parameter instead of loopback
+	sockaddr.sin_family = AF_INET;
+	sockaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	sockaddr.sin_port = htons(port);
+
+	result = bind(server, (struct sockaddr*)&sockaddr, sizeof(sockaddr));
+	if (result < 0) {
+		perror("bind");
+		std::exit(2);
 	}
 
-	Poll<std::span<std::uint8_t>> Socket::read(std::span<std::uint8_t> buf) const
-	{
-		return [sock_fd = sock_fd, buf](std::span<std::uint8_t>& return_buf) -> bool {
-			auto recv = ::read(sock_fd, buf.data(), buf.size());
-			if (recv < 0) {
-				if (errno == EWOULDBLOCK || errno == EAGAIN) {
-					return false;
-				}
-				perror("read");
-				exit(2);
-			}
-			return_buf = std::span{buf.data(), (std::size_t)recv};
-			return true;
-		};
+	result = ::listen(server, 8);
+	if (result < 0) {
+		perror("listen");
+		std::exit(2);
 	}
 
-	Poll<std::span<std::uint8_t>> Socket::write(std::span<std::uint8_t> buf) const
-	{
-		return [sock_fd = sock_fd, buf](std::span<std::uint8_t>& return_buf) -> bool {
-			auto written = ::write(sock_fd, buf.data(), buf.size());
-			if (written < 0) {
-				if (errno == EWOULDBLOCK || errno == EAGAIN) {
-					return false;
-				}
-				perror("write");
-				exit(2);
-			}
-			return_buf = std::span{buf.data() + written, buf.size() - written};
-			return true;
-		};
-	}
-
-	Socket listen(std::string interface, std::uint16_t port)
-	{
-		int result;
-
-		Socket s;
-		s.sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-		assert(s.sock_fd >= 0 && "TODO: error handling");
-
-		result = fcntl(s.sock_fd, F_SETFL, O_NONBLOCK);
-		assert(result >= 0 && "TODO: error handling");
-
-		int enable = 1;
-		result = setsockopt(s.sock_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-		assert(result >= 0 && "TODO: error handling");
-
-		sockaddr_in sockaddr = {}; // TODO: Use address provided by interface parameter instead of loopback
-		sockaddr.sin_family = AF_INET;
-		sockaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-		sockaddr.sin_port = htons(port);
-
-		result = bind(s.sock_fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr));
-		if (result < 0) {
-			perror("bind");
-			std::exit(2);
-		}
-
-		result = ::listen(s.sock_fd, 8);
-		if (result < 0) {
-			perror("listen");
-			std::exit(2);
-		}
-
-		return s;
-	}
+	return server;
 }
 
-coro::Task echo(coro::net::Socket s)
+coro::Task<void> echo(int server_fd)
 {
 	for (;;) {
-		std::cout << "Waiting for connection\n";
-		auto client = co_await s.accept();
-		std::cout << "Accepted connection\n";
+		int fd = co_await coro::accept(server_fd);
 
-		coro::spawn([](auto client) -> coro::Task {
-			std::uint8_t buffer[1024];
-
+		scheduler.schedule([](int fd) -> coro::Task<void> {
+			std::array<std::uint8_t, 1024> buf;
 			for (;;) {
-				auto recv = co_await client.read(buffer);
-				if (recv.empty()) break;
-				while ((recv = co_await client.write(recv)).size()) {}
+				auto data = co_await coro::read(fd, buf);
+				do {
+					std::errc ec;
+					std::tie(data, ec) = co_await coro::send(fd, data, MSG_NOSIGNAL);
+					if (ec != std::errc{}) {
+						if (ec != std::errc::broken_pipe) { std::cerr << "error: " << std::make_error_code(ec).message() << "\n"; }
+						co_return;
+					}
+				} while (data.size());
 			}
-			close(client.sock_fd);
-		}, client);
+		}(fd));
 	}
+	co_return;
 }
 
 int main()
 {
-	auto s = coro::net::listen("127.0.0.1", 8080);
-	coro::spawn(echo, s);
-
-	decltype(executor_list) executing;
-
-	for (;;) {
-		std::swap(executor_list, executing);
-		for (auto f : executing) {
-			if (!f()) {
-				executor_list.emplace_back(std::move(f));
-			}
-		}
-		executing.clear();
-	}
-
-	close(s.sock_fd);
+	auto fd = listen("0.0.0.0", 8080);
+	scheduler.schedule(echo(fd));
+	scheduler.main_loop();
 }
+
