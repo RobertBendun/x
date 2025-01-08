@@ -11,8 +11,11 @@ CXXFLAGS = ["-std=c++23", "-Wall", "-Wextra"]
 BUILD_DIR = pathlib.Path("build")
 
 def needs_rebuild(target, *sources):
-    target_mtime = pathlib.Path(target).stat().st_mtime
-    return any(target_mtime < pathlib.Path(source).stat().st_mtime for source in sources)
+    target = pathlib.Path(target)
+    if target.exists():
+        target_mtime = pathlib.Path(target).stat().st_mtime
+        return any(target_mtime < pathlib.Path(source).stat().st_mtime for source in sources)
+    return True
 
 def cmd(*args):
     args = list(map(str, args))
