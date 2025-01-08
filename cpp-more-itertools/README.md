@@ -26,7 +26,7 @@ You can build and run tests using `python3 build.py` command.
 - [ ] `split_after`
 - [ ] `split_into`
 - [ ] `split_when`
-- [ ] `bucket`
+- [x] `bucket`: [`ranges::bucket_to`](./bucket.hh)
 - [x] `unzip`: [`ranges::unzip, ranges::unzip_to`](./unzip.hh)
 - [ ] `batched`
 - [ ] `grouper`
