@@ -3,19 +3,7 @@
 #include <ranges>
 #include <utility>
 
-#define FORWARD_METHODS(name) \
-	auto operator++(int) { auto copy = *this; ++*this; return copy; }
-
-#define BIDIRECTIONAL_METHODS(name) \
-	FORWARD_METHODS(name) \
-	auto operator--(int) { auto copy = *this; --*this; return copy; }
-
-#define RANDOM_ACCESS_METHODS(name) \
-	BIDIRECTIONAL_METHODS(name) \
-	auto operator+(difference_type d) const { auto copy = *this; copy += d; return copy; } \
-	auto operator-(difference_type d) const { auto copy = *this; copy -= d; return copy; } \
-	friend auto operator+(difference_type d, name const& i) { return i + d; } \
-	reference_type operator*() const { return (*this)[difference_type()]; }
+#include "common.hh"
 
 namespace ranges
 {
@@ -34,6 +22,7 @@ namespace iterators
 			using difference_type = std::iter_difference_t<Iterator>;
 
 			reference_type operator[](difference_type d) const { return iterator[i+d][j]; }
+			reference_type operator*() const { return iterator[i][j]; }
 			inner& operator++() { ++i; return *this; }
 			inner& operator--() { --i; return *this; }
 			inner& operator+=(difference_type d) { i += d; return *this; }
@@ -54,8 +43,6 @@ namespace iterators
 		using reference_type = value_type;
 		using difference_type = std::ranges::range_difference_t<std::iter_value_t<Iterator>>;
 
-
-
 		Iterator iterator;
 		std::iter_difference_t<Iterator> j, i_max, j_max;
 
@@ -63,6 +50,8 @@ namespace iterators
 		{
 			return { .iterator = iterator, .i = 0, .j = j + d, .i_max = i_max };
 		}
+
+		reference_type operator*() const { return { .iterator = iterator, .i = 0, .j = j, .i_max = i_max }; }
 
 		transpose& operator++() { ++j; return *this; }
 		transpose& operator--() { --j; return *this; }

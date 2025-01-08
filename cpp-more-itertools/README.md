@@ -35,21 +35,21 @@ You can build and run tests using `python3 build.py` command.
 
 ### Lookahead and lookback
 
-- [ ] `spy`
+- [x] `spy`: [`std::views::take`](https://en.cppreference.com/w/cpp/ranges/take_view) on forward range
 - [ ] `peekable`
 - [ ] `seekable`
 
 ### Windowing
 
 
-- [ ] `windowed`
+- [x] `windowed`: [`std::views::slide`](https://en.cppreference.com/w/cpp/ranges/slide_view)
 - [ ] `substrings`
 - [ ] `substrings_indexes`
 - [ ] `stagger`
 - [ ] `windowed_complete`
 - [ ] `pairwise`
 - [ ] `triplewise`
-- [ ] `sliding_window`
+- [x] `sliding_window`: [`std::views::slide`](https://en.cppreference.com/w/cpp/ranges/slide_view)
 - [ ] `subslices`
 
 ### Augmenting
@@ -58,7 +58,7 @@ You can build and run tests using `python3 build.py` command.
 - [ ] `intersperse`
 - [ ] `padded`
 - [ ] `repeat_each`
-- [ ] `mark_ends`
+- [x] `mark_ends`: [`views::mark_ends`](./mark_ends.hh)
 - [ ] `repeat_last`
 - [ ] `adjacent`
 - [ ] `groupby_transform`

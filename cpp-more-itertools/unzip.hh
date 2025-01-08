@@ -15,7 +15,7 @@ namespace ranges
 		using value_type = std::ranges::range_value_t<Range>;
 		return []<std::size_t ...I>(std::index_sequence<I...>, auto &&range) {
 			return std::tuple {
-				(range | std::views::transform([](auto &el) { return std::get<I>(el); }))...
+				(range | std::views::elements<I>)...
 			};
 		}(std::make_index_sequence<std::tuple_size_v<value_type>>{}, std::forward<Range>(range));
 	}
@@ -26,7 +26,7 @@ namespace ranges
 		using value_type = std::ranges::range_value_t<Range>;
 		return []<std::size_t ...I>(std::index_sequence<I...>, auto &&range) {
 			return std::tuple {
-				(range | std::views::transform([](auto &el) { return std::get<I>(el); }) | std::ranges::to<C>())...
+				(range | std::views::elements<I> | std::ranges::to<C>())...
 			};
 		}(std::make_index_sequence<std::tuple_size_v<value_type>>{}, std::forward<Range>(range));
 	}
